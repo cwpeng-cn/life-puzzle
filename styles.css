@@ -26,6 +26,8 @@ body {
   padding: 16px;
 }
 .brand { font-weight: 700; font-size: 18px; margin-bottom: 12px; }
+.account { border: 1px solid var(--border); background: #fff; border-radius: 10px; padding: 10px; margin-bottom: 12px; box-shadow: 0 1px 1px rgba(0,0,0,0.03); }
+.account-status { font-size: 13px; color: var(--sub); margin-bottom: 8px; }
 .projects-header { margin: 16px 0 8px; font-size: 12px; color: var(--sub); letter-spacing: 1px; }
 .project-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
 .project-item { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: #fff; cursor: pointer; box-shadow: 0 1px 1px rgba(0,0,0,0.04); }
@@ -42,9 +44,21 @@ body {
 
 .puzzle-wrap { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 18px; box-shadow: var(--shadow); position: relative; }
 /* Enlarge the puzzle area a bit */
-.puzzle { position: relative; width: 100%; height: 64vh; min-height: 400px; background: repeating-linear-gradient(135deg, #f7f2e8, #f7f2e8 10px, #f2ebdd 10px, #f2ebdd 20px); border-radius: 10px; overflow: hidden; display: grid; place-items: center; }
+.puzzle { position: relative; width: 100%; height: 75vh; min-height: 480px; background: repeating-linear-gradient(135deg, #f7f2e8, #f7f2e8 10px, #f2ebdd 10px, #f2ebdd 20px); border-radius: 10px; overflow: hidden; display: grid; place-items: center; }
 /* Quote area under puzzle */
-.quote { margin-top: 14px; min-height: 48px; display: grid; place-items: center; color: var(--sub); font-style: italic; padding: 8px 12px; border-radius: 10px; background: rgba(255,255,255,0.6); }
+.quote {
+  margin-top: 14px;
+  min-height: 48px;
+  display: flex;
+  align-items: center;      /* vertical center */
+  justify-content: center;  /* horizontal center */
+  text-align: center;
+  color: var(--sub);
+  font-style: italic;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.6);
+}
 
 .puzzle-stage { position: relative; width: min(100%, 960px); height: auto; }
 
@@ -78,6 +92,8 @@ button:disabled { opacity: 0.6; cursor: not-allowed; }
 .modal::backdrop { background: rgba(0,0,0,0.2); }
 .modal form { padding: 18px; min-width: 340px; display: grid; gap: 12px; }
 .modal label { display: grid; gap: 6px; color: var(--sub); font-size: 14px; }
+.auth-error { color: #b3261e; background: #fdecec; border: 1px solid #ffd1d1; padding: 8px 10px; border-radius: 8px; font-size: 13px; }
+.auth-hint { display: flex; align-items: center; gap: 6px; }
 .grid-inputs { display: flex; align-items: center; gap: 8px; }
 .image-preview { height: 120px; border: 1px dashed var(--border); border-radius: 10px; display: grid; place-items: center; color: var(--sub); background-size: cover; background-position: center; }
 

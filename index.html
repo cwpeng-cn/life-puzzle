@@ -10,6 +10,11 @@
     <div id="app">
       <aside class="sidebar">
         <div class="brand">🧩 人生拼图</div>
+        <div id="accountPanel" class="account">
+          <div id="accountStatus" class="account-status">未登入</div>
+          <button id="loginBtn" class="primary block">登入 / 註冊</button>
+          <button id="logoutBtn" class="danger block" style="display:none">登出</button>
+        </div>
         <button id="newProjectBtn" class="primary block">＋ 新建專案</button>
         <div class="projects-header">專案</div>
         <ul id="projectList" class="project-list"></ul>
@@ -70,6 +75,31 @@
         <menu>
           <button value="cancel">取消</button>
           <button id="createProjectBtn" value="default" class="primary">建立</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <!-- 登入／註冊 Modal -->
+    <dialog id="authDialog" class="modal">
+      <form method="dialog" id="authForm">
+        <h3 id="authTitle">登入</h3>
+        <label>電子郵件
+          <input type="email" id="authEmail" required placeholder="you@example.com" />
+        </label>
+        <label>密碼
+          <input type="password" id="authPassword" required minlength="6" placeholder="至少 6 碼" />
+        </label>
+        <label id="authConfirmWrap" style="display:none">確認密碼
+          <input type="password" id="authPasswordConfirm" minlength="6" placeholder="再次輸入密碼" />
+        </label>
+        <div id="authError" class="auth-error" style="display:none"></div>
+        <div class="hint auth-hint">
+          <span id="authToggleText">沒有帳號？</span>
+          <button id="authToggleBtn" type="button" style="border:none;background:none;color:var(--primary);cursor:pointer;padding:0">改為註冊</button>
+        </div>
+        <menu>
+          <button value="cancel">取消</button>
+          <button id="authSubmitBtn" value="default" class="primary">登入</button>
         </menu>
       </form>
     </dialog>

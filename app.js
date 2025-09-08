@@ -1,10 +1,64 @@
+// Lightweight local auth (email + password) using localStorage.
+// Note: for demo/offline use only; not production-secure.
+const Auth = {
+  usersKey: 'auth.users.v1',
+  currentKey: 'auth.current.v1',
+  users: {},
+  current: null,
+  async init() {
+    try { this.users = JSON.parse(localStorage.getItem(this.usersKey) || '{}') || {}; } catch { this.users = {}; }
+    try { this.current = JSON.parse(localStorage.getItem(this.currentKey) || 'null'); } catch { this.current = null; }
+  },
+  saveUsers() { localStorage.setItem(this.usersKey, JSON.stringify(this.users || {})); },
+  saveCurrent() { if (this.current) localStorage.setItem(this.currentKey, JSON.stringify(this.current)); else localStorage.removeItem(this.currentKey); },
+  userKey() { return this.current?.email || 'guest'; },
+  normalizeEmail(email) { return String(email||'').trim().toLowerCase(); },
+  async register(email, password) {
+    const e = this.normalizeEmail(email);
+    if (!e || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) throw new Error('請輸入有效的電子郵件');
+    if (!password || String(password).length < 6) throw new Error('密碼至少 6 碼');
+    if (this.users[e]) throw new Error('此信箱已註冊');
+    const { saltHex, hashHex } = await this._hash(password);
+    this.users[e] = { email: e, pwh: `v1:${saltHex}:${hashHex}`, createdAt: Date.now() };
+    this.saveUsers();
+    this.current = { email: e, signedAt: Date.now() };
+    this.saveCurrent();
+  },
+  async login(email, password) {
+    const e = this.normalizeEmail(email);
+    const rec = this.users[e];
+    if (!rec) throw new Error('帳號不存在');
+    const [ver, saltHex, expect] = String(rec.pwh||'').split(':');
+    if (ver !== 'v1' || !saltHex || !expect) throw new Error('帳號資料已損壞');
+    const { hashHex } = await this._hash(password, saltHex);
+    if (hashHex !== expect) throw new Error('密碼錯誤');
+    this.current = { email: e, signedAt: Date.now() };
+    this.saveCurrent();
+  },
+  logout() { this.current = null; this.saveCurrent(); },
+  async _hash(password, saltHex) {
+    const salt = saltHex ? this._fromHex(saltHex) : this._rand(16);
+    const enc = new TextEncoder();
+    const data = new Uint8Array(salt.length + enc.encode(password).length);
+    data.set(salt, 0); data.set(enc.encode(password), salt.length);
+    const buf = await crypto.subtle.digest('SHA-256', data);
+    const hashHex = this._toHex(new Uint8Array(buf));
+    return { saltHex: this._toHex(salt), hashHex };
+  },
+  _rand(n) { const a = new Uint8Array(n); crypto.getRandomValues(a); return a; },
+  _toHex(u8) { return Array.from(u8).map(b => b.toString(16).padStart(2,'0')).join(''); },
+  _fromHex(hex) { const a = new Uint8Array(hex.length/2); for (let i=0;i<a.length;i++) a[i]=parseInt(hex.substr(i*2,2),16); return a; }
+};
+
 // Simple persistent store for projects (metadata only; images in IndexedDB)
 const Store = {
-  key: 'puzzele.projects.v1',
-  selKey: 'puzzele.selectedId',
+  keyBase: 'puzzele.projects.v1',
+  selBase: 'puzzele.selectedId',
+  key() { return `${this.keyBase}:${Auth.userKey()}`; },
+  selKey() { return `${this.selBase}:${Auth.userKey()}`; },
   load() {
     try {
-      const raw = localStorage.getItem(this.key);
+      const raw = localStorage.getItem(this.key());
       const arr = raw ? JSON.parse(raw) : [];
       return Array.isArray(arr) ? arr : [];
     } catch (e) {
@@ -18,14 +72,14 @@ const Store = {
       const { image, _imageUrl, ...rest } = p || {};
       return rest;
     });
-    localStorage.setItem(this.key, JSON.stringify(slim));
+    localStorage.setItem(this.key(), JSON.stringify(slim));
   },
   selectedId() {
-    return localStorage.getItem(this.selKey);
+    return localStorage.getItem(this.selKey());
   },
   setSelectedId(id) {
-    if (id == null) localStorage.removeItem(this.selKey);
-    else localStorage.setItem(this.selKey, String(id));
+    if (id == null) localStorage.removeItem(this.selKey());
+    else localStorage.setItem(this.selKey(), String(id));
   }
 };
 
@@ -271,6 +325,9 @@ class Puzzle {
   }
 }
 
+// Init auth first
+Auth.init();
+
 // Global state
 let projects = Store.load();
 let selectedId = Store.selectedId();
@@ -305,8 +362,48 @@ const els = {
   startBtn: document.getElementById('startBtn'),
   pauseBtn: document.getElementById('pauseBtn'),
   resetBtn: document.getElementById('resetBtn'),
-  completeBtn: document.getElementById('completeBtn')
+  completeBtn: document.getElementById('completeBtn'),
+  // auth/account
+  loginBtn: document.getElementById('loginBtn'),
+  logoutBtn: document.getElementById('logoutBtn'),
+  accountStatus: document.getElementById('accountStatus'),
+  authDialog: document.getElementById('authDialog'),
+  authForm: document.getElementById('authForm'),
+  authTitle: document.getElementById('authTitle'),
+  authEmail: document.getElementById('authEmail'),
+  authPassword: document.getElementById('authPassword'),
+  authPasswordConfirm: document.getElementById('authPasswordConfirm'),
+  authConfirmWrap: document.getElementById('authConfirmWrap'),
+  authError: document.getElementById('authError'),
+  authToggleBtn: document.getElementById('authToggleBtn'),
+  authToggleText: document.getElementById('authToggleText'),
+  authSubmitBtn: document.getElementById('authSubmitBtn')
 };
+
+// Auth UI helpers
+let authMode = 'login'; // 'login' | 'register'
+function setAuthMode(mode) {
+  authMode = mode;
+  els.authTitle.textContent = mode === 'login' ? '登入' : '註冊';
+  els.authConfirmWrap.style.display = mode === 'register' ? '' : 'none';
+  els.authToggleText.textContent = mode === 'login' ? '沒有帳號？' : '已經有帳號？';
+  els.authToggleBtn.textContent = mode === 'login' ? '改為註冊' : '改為登入';
+  els.authSubmitBtn.textContent = mode === 'login' ? '登入' : '註冊';
+  els.authError.style.display = 'none';
+}
+function updateAccountUI() {
+  const email = Auth.current?.email || null;
+  els.accountStatus.textContent = email ? `已登入：${email}` : '未登入';
+  els.loginBtn.style.display = email ? 'none' : '';
+  els.logoutBtn.style.display = email ? '' : 'none';
+}
+async function reloadUserData() {
+  projects = Store.load();
+  selectedId = Store.selectedId();
+  selected = projects.find(p => p.id === selectedId) || null;
+  updateSidebar();
+  updateToolbar();
+}
 
 function updateSidebar() {
   els.list.innerHTML = '';
@@ -557,6 +654,40 @@ els.startBtn.addEventListener('click', () => Timer.start());
 els.pauseBtn.addEventListener('click', () => Timer.pause());
 els.resetBtn.addEventListener('click', () => Timer.reset());
 els.completeBtn.addEventListener('click', () => { Timer.stop(); onTimerComplete(); });
+
+// Account / Auth wiring
+updateAccountUI();
+els.loginBtn.addEventListener('click', () => { setAuthMode('login'); els.authDialog.showModal(); });
+els.logoutBtn.addEventListener('click', () => {
+  Auth.logout();
+  updateAccountUI();
+  reloadUserData();
+  flashToast('已登出');
+});
+els.authToggleBtn.addEventListener('click', () => { setAuthMode(authMode === 'login' ? 'register' : 'login'); });
+els.authForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  els.authError.style.display = 'none';
+  const email = els.authEmail.value.trim();
+  const pass = els.authPassword.value;
+  try {
+    if (authMode === 'register') {
+      const pass2 = els.authPasswordConfirm.value;
+      if (pass !== pass2) throw new Error('兩次輸入的密碼不一致');
+      await Auth.register(email, pass);
+      flashToast('註冊並登入成功');
+    } else {
+      await Auth.login(email, pass);
+      flashToast('登入成功');
+    }
+    updateAccountUI();
+    els.authDialog.close();
+    reloadUserData();
+  } catch (err) {
+    els.authError.textContent = (err && err.message) ? err.message : '操作失敗';
+    els.authError.style.display = '';
+  }
+});
 
 // Toast
 let toastEl;

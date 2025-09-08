@@ -1,0 +1,91 @@
+:root {
+  --bg: #f6f2ea;
+  --panel: #fffdf8;
+  --ink: #2b2b2b;
+  --sub: #6b6b6b;
+  --primary: #4a7aee;
+  --success: #2ea44f;
+  --border: #e7e0d0;
+  --shadow: 0 10px 30px rgba(0,0,0,0.08);
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans TC', Helvetica, Arial, sans-serif;
+  color: var(--ink);
+  background: radial-gradient(1200px 600px at 20% -10%, #fff 0%, #f7f3eb 60%, #efe8d9 100%);
+}
+
+#app { display: grid; grid-template-columns: 280px 1fr; height: 100%; }
+
+.sidebar {
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  padding: 16px;
+}
+.brand { font-weight: 700; font-size: 18px; margin-bottom: 12px; }
+.projects-header { margin: 16px 0 8px; font-size: 12px; color: var(--sub); letter-spacing: 1px; }
+.project-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.project-item { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: #fff; cursor: pointer; box-shadow: 0 1px 1px rgba(0,0,0,0.04); }
+.project-item.active { outline: 2px solid color-mix(in oklab, var(--primary) 30%, transparent); background: #f7faff; }
+.project-item .name { font-weight: 600; }
+.project-item .meta { font-size: 12px; color: var(--sub); margin-top: 2px; }
+
+.main { display: grid; grid-template-rows: auto 1fr auto; padding: 16px 18px; gap: 16px; }
+.toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.title { font-weight: 700; font-size: 20px; }
+.progress-wrap { display: flex; align-items: center; gap: 10px; }
+.progress-bar { width: 240px; height: 10px; background: #eee7d9; border-radius: 999px; overflow: hidden; box-shadow: inset 0 2px 5px rgba(0,0,0,0.06); }
+.progress-bar .bar { height: 100%; width: 0%; background: linear-gradient(90deg, #9fb7ff, #4a7aee); border-radius: inherit; transition: width .4s ease; }
+
+.puzzle-wrap { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 18px; box-shadow: var(--shadow); position: relative; }
+/* Enlarge the puzzle area a bit */
+.puzzle { position: relative; width: 100%; height: 64vh; min-height: 400px; background: repeating-linear-gradient(135deg, #f7f2e8, #f7f2e8 10px, #f2ebdd 10px, #f2ebdd 20px); border-radius: 10px; overflow: hidden; display: grid; place-items: center; }
+/* Quote area under puzzle */
+.quote { margin-top: 14px; min-height: 48px; display: grid; place-items: center; color: var(--sub); font-style: italic; padding: 8px 12px; border-radius: 10px; background: rgba(255,255,255,0.6); }
+
+.puzzle-stage { position: relative; width: min(100%, 960px); height: auto; }
+
+.piece {
+  position: absolute;
+  will-change: transform, opacity;
+  transition: opacity .35s ease, transform .35s ease;
+  opacity: 0;
+  transform: translateY(6px) rotate(0.2deg);
+  filter: drop-shadow(0 2px 1px rgba(0,0,0,0.12)) drop-shadow(0 10px 10px rgba(0,0,0,0.08));
+}
+.piece.revealed { opacity: 1; transform: translateY(0) rotate(0deg); }
+.piece::after { content: ""; position: absolute; inset: 0; border-radius: 2px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.4), inset 0 -1px 0 rgba(0,0,0,0.08); }
+
+.controls { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 16px; display: grid; gap: 12px; }
+.control-row { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+.control-row label { display: flex; align-items: center; gap: 8px; color: var(--sub); }
+.control-row input { width: 90px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); background: #fff; color: var(--ink); }
+.timer-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.timer { font-size: 40px; font-weight: 800; letter-spacing: 1px; }
+.buttons { display: flex; gap: 8px; }
+
+button { appearance: none; border: 1px solid var(--border); background: #fff; color: var(--ink); padding: 8px 12px; border-radius: 10px; cursor: pointer; }
+button.primary { background: var(--primary); color: white; border: none; }
+button.success { background: var(--success); color: white; border: none; }
+button.danger { background: #d23b3b; color: white; border: none; }
+button.block { width: 100%; }
+button:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.modal { border: none; border-radius: 14px; padding: 0; box-shadow: var(--shadow); }
+.modal::backdrop { background: rgba(0,0,0,0.2); }
+.modal form { padding: 18px; min-width: 340px; display: grid; gap: 12px; }
+.modal label { display: grid; gap: 6px; color: var(--sub); font-size: 14px; }
+.grid-inputs { display: flex; align-items: center; gap: 8px; }
+.image-preview { height: 120px; border: 1px dashed var(--border); border-radius: 10px; display: grid; place-items: center; color: var(--sub); background-size: cover; background-position: center; }
+
+.puzzle.preview { height: 220px; min-height: 200px; }
+
+.hint { color: var(--sub); font-size: 12px; }
+
+@media (max-width: 920px) {
+  #app { grid-template-columns: 1fr; }
+  .sidebar { display: none; }
+}

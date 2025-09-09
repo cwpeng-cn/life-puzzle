@@ -16,22 +16,22 @@
       <aside class="sidebar">
         <div class="brand">🧩 人生拼图</div>
         <div id="accountPanel" class="account">
-          <div id="accountStatus" class="account-status">未登入</div>
-          <button id="loginBtn" class="primary block">登入 / 註冊</button>
+          <div id="accountStatus" class="account-status">未登录</div>
+          <button id="loginBtn" class="primary block">登录 / 注册</button>
           <button id="logoutBtn" class="danger block" style="display:none">登出</button>
         </div>
-        <button id="newProjectBtn" class="primary block">＋ 新建專案</button>
-        <div class="projects-header">專案</div>
+        <button id="newProjectBtn" class="primary block">＋ 新建目标</button>
+        <div class="projects-header">目标</div>
         <ul id="projectList" class="project-list"></ul>
       </aside>
       <main class="main">
         <div class="toolbar">
-          <div id="currentProjectName" class="title">未選擇專案</div>
+          <div id="currentProjectName" class="title">未選擇目标</div>
           <div class="progress-wrap">
             <div id="progressText">0%</div>
             <div class="progress-bar"><div id="progressBar" class="bar"></div></div>
           </div>
-          <button id="deleteProjectBtn" class="danger" title="刪除目前專案" disabled>刪除專案</button>
+          <button id="deleteProjectBtn" class="danger" title="刪除目前目标" disabled>刪除目标</button>
         </div>
 
         <section class="puzzle-wrap">
@@ -41,18 +41,18 @@
 
         <section class="controls">
           <div class="control-row">
-            <label>這次番茄鐘推進（%）：
+            <label>这次番茄钟推进（%）：
               <input id="sessionPercent" type="number" min="0" max="100" step="0.5" value="2" />
             </label>
-            <label>計時（分鐘）：
+            <label>计时（分钟）：
               <input id="minutesInput" type="number" min="1" max="180" step="1" value="25" />
             </label>
           </div>
           <div class="timer-row">
             <div id="timerDisplay" class="timer">25:00</div>
             <div class="buttons">
-              <button id="startBtn" class="primary">開始</button>
-              <button id="pauseBtn">暫停</button>
+              <button id="startBtn" class="primary">开始</button>
+              <button id="pauseBtn">暂停</button>
               <button id="resetBtn">重置</button>
               <button id="completeBtn" class="success" title="直接完成本次番茄鐘">完成</button>
             </div>
@@ -61,10 +61,10 @@
       </main>
     </div>
 
-    <!-- 新建專案 Modal -->
+    <!-- 新建目标 Modal -->
     <dialog id="newProjectDialog" class="modal">
       <form method="dialog" id="newProjectForm">
-        <h3>新建專案</h3>
+        <h3>新建目标</h3>
         <label>名稱
           <input type="text" id="projName" required placeholder="例如：寫一本書" />
         </label>
@@ -84,10 +84,10 @@
       </form>
     </dialog>
 
-    <!-- 登入／註冊 Modal -->
+    <!-- 登录／注册 Modal -->
     <dialog id="authDialog" class="modal">
       <form method="dialog" id="authForm">
-        <h3 id="authTitle">登入</h3>
+        <h3 id="authTitle">登录</h3>
         <label>電子郵件
           <input type="email" id="authEmail" required placeholder="you@example.com" />
         </label>
@@ -100,11 +100,11 @@
         <div id="authError" class="auth-error" style="display:none"></div>
         <div class="hint auth-hint">
           <span id="authToggleText">沒有帳號？</span>
-          <button id="authToggleBtn" type="button" style="border:none;background:none;color:var(--primary);cursor:pointer;padding:0">改為註冊</button>
+          <button id="authToggleBtn" type="button" style="border:none;background:none;color:var(--primary);cursor:pointer;padding:0">改為注册</button>
         </div>
         <menu>
           <button value="cancel" formnovalidate>取消</button>
-          <button id="authSubmitBtn" value="default" class="primary">登入</button>
+          <button id="authSubmitBtn" value="default" class="primary">登录</button>
         </menu>
       </form>
     </dialog>

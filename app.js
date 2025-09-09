@@ -536,16 +536,16 @@ const els = {
 let authMode = 'login'; // 'login' | 'register'
 function setAuthMode(mode) {
   authMode = mode;
-  els.authTitle.textContent = mode === 'login' ? '登入' : '註冊';
+  els.authTitle.textContent = mode === 'login' ? '登录' : '注册';
   els.authConfirmWrap.style.display = mode === 'register' ? '' : 'none';
   els.authToggleText.textContent = mode === 'login' ? '沒有帳號？' : '已經有帳號？';
-  els.authToggleBtn.textContent = mode === 'login' ? '改為註冊' : '改為登入';
-  els.authSubmitBtn.textContent = mode === 'login' ? '登入' : '註冊';
+  els.authToggleBtn.textContent = mode === 'login' ? '改為注册' : '改為登录';
+  els.authSubmitBtn.textContent = mode === 'login' ? '登录' : '注册';
   els.authError.style.display = 'none';
 }
 function updateAccountUI() {
   const email = Auth.current?.email || null;
-  els.accountStatus.textContent = email ? `已登入：${email}` : '未登入';
+  els.accountStatus.textContent = email ? `已登录：${email}` : '未登录';
   els.loginBtn.style.display = email ? 'none' : '';
   els.logoutBtn.style.display = email ? '' : 'none';
 }
@@ -572,7 +572,7 @@ function updateSidebar() {
 
 function updateToolbar() {
   if (!selected) {
-    els.title.textContent = '未選擇專案';
+    els.title.textContent = '未选择目标';
     els.progressText.textContent = '0%';
     els.progressBar.style.width = '0%';
     els.puzzle.setProject(null);
@@ -607,7 +607,7 @@ ImageDB.del = async function(id) {
 async function deleteProject(id) {
   const p = projects.find(x => x.id === id);
   if (!p) return;
-  const ok = confirm(`確定要刪除專案「${p.name}」嗎？此動作無法復原。`);
+  const ok = confirm(`確定要刪除目标「${p.name}」嗎？此動作無法復原。`);
   if (!ok) return;
   try { if (p.imageRef) await ImageDB.del(p.imageRef); } catch {}
   try { await Store.deleteProject(id); } catch (e) { console.warn('remote delete failed', e); }
@@ -951,10 +951,10 @@ els.authForm.addEventListener('submit', async (e) => {
       const pass2 = els.authPasswordConfirm.value;
       if (pass !== pass2) throw new Error('兩次輸入的密碼不一致');
       await Auth.register(email, pass);
-      flashToast('註冊並登入成功');
+      flashToast('注册並登录成功');
     } else {
       await Auth.login(email, pass);
-      flashToast('登入成功');
+      flashToast('登录成功');
     }
     updateAccountUI();
     els.authDialog.close();

@@ -810,7 +810,12 @@ els.img.addEventListener('change', (e) => {
   setTempImage(file);
 });
 
+// For <form method="dialog">, clicking a button with value="cancel"
+// should close the dialog by default. Detect cancel and do NOT preventDefault.
 els.form.addEventListener('submit', async (e) => {
+  const isCancel = (e.submitter && e.submitter.value === 'cancel') ||
+                   (document.activeElement && document.activeElement.getAttribute && document.activeElement.getAttribute('value') === 'cancel');
+  if (isCancel) return; // allow dialog to close normally
   e.preventDefault();
   const name = els.name.value.trim();
   const rows = 10;
@@ -932,7 +937,11 @@ els.logoutBtn.addEventListener('click', async () => {
   flashToast('已登出');
 });
 els.authToggleBtn.addEventListener('click', () => { setAuthMode(authMode === 'login' ? 'register' : 'login'); });
+// Same cancel handling for auth dialog
 els.authForm.addEventListener('submit', async (e) => {
+  const isCancel = (e.submitter && e.submitter.value === 'cancel') ||
+                   (document.activeElement && document.activeElement.getAttribute && document.activeElement.getAttribute('value') === 'cancel');
+  if (isCancel) return; // let <form method="dialog"> close the dialog
   e.preventDefault();
   els.authError.style.display = 'none';
   const email = els.authEmail.value.trim();

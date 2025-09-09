@@ -1,62 +1,66 @@
-// Lightweight local auth (email + password) using localStorage.
-// Note: for demo/offline use only; not production-secure.
-const Auth = {
-  usersKey: 'auth.users.v1',
-  currentKey: 'auth.current.v1',
-  users: {},
-  current: null,
-  async init() {
-    try { this.users = JSON.parse(localStorage.getItem(this.usersKey) || '{}') || {}; } catch { this.users = {}; }
-    try { this.current = JSON.parse(localStorage.getItem(this.currentKey) || 'null'); } catch { this.current = null; }
-  },
-  saveUsers() { localStorage.setItem(this.usersKey, JSON.stringify(this.users || {})); },
-  saveCurrent() { if (this.current) localStorage.setItem(this.currentKey, JSON.stringify(this.current)); else localStorage.removeItem(this.currentKey); },
-  userKey() { return this.current?.email || 'guest'; },
-  normalizeEmail(email) { return String(email||'').trim().toLowerCase(); },
-  async register(email, password) {
-    const e = this.normalizeEmail(email);
-    if (!e || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) throw new Error('請輸入有效的電子郵件');
-    if (!password || String(password).length < 6) throw new Error('密碼至少 6 碼');
-    if (this.users[e]) throw new Error('此信箱已註冊');
-    const { saltHex, hashHex } = await this._hash(password);
-    this.users[e] = { email: e, pwh: `v1:${saltHex}:${hashHex}`, createdAt: Date.now() };
-    this.saveUsers();
-    this.current = { email: e, signedAt: Date.now() };
-    this.saveCurrent();
-  },
-  async login(email, password) {
-    const e = this.normalizeEmail(email);
-    const rec = this.users[e];
-    if (!rec) throw new Error('帳號不存在');
-    const [ver, saltHex, expect] = String(rec.pwh||'').split(':');
-    if (ver !== 'v1' || !saltHex || !expect) throw new Error('帳號資料已損壞');
-    const { hashHex } = await this._hash(password, saltHex);
-    if (hashHex !== expect) throw new Error('密碼錯誤');
-    this.current = { email: e, signedAt: Date.now() };
-    this.saveCurrent();
-  },
-  logout() { this.current = null; this.saveCurrent(); },
-  async _hash(password, saltHex) {
-    const salt = saltHex ? this._fromHex(saltHex) : this._rand(16);
-    const enc = new TextEncoder();
-    const data = new Uint8Array(salt.length + enc.encode(password).length);
-    data.set(salt, 0); data.set(enc.encode(password), salt.length);
-    const buf = await crypto.subtle.digest('SHA-256', data);
-    const hashHex = this._toHex(new Uint8Array(buf));
-    return { saltHex: this._toHex(salt), hashHex };
-  },
-  _rand(n) { const a = new Uint8Array(n); crypto.getRandomValues(a); return a; },
-  _toHex(u8) { return Array.from(u8).map(b => b.toString(16).padStart(2,'0')).join(''); },
-  _fromHex(hex) { const a = new Uint8Array(hex.length/2); for (let i=0;i<a.length;i++) a[i]=parseInt(hex.substr(i*2,2),16); return a; }
+// Firebase Auth + Firestore integration
+const firebaseConfig = {
+  apiKey: "AIzaSyA4Y4jYDuCc776Co3oCYSTDizdWB9EmyqE",
+  authDomain: "life-puzzle-vv.firebaseapp.com",
+  projectId: "life-puzzle-vv",
+  storageBucket: "life-puzzle-vv.appspot.com",
+  messagingSenderId: "56881653658",
+  appId: "1:56881653658:web:cc49ca253a2dc1a5e7fc23"
 };
 
-// Simple persistent store for projects (metadata only; images in IndexedDB)
+// Initialize Firebase (compat builds loaded in index.html)
+let __fbAppInited = false;
+function ensureFirebase() {
+  if (!__fbAppInited) {
+    firebase.initializeApp(firebaseConfig);
+    __fbAppInited = true;
+  }
+}
+
+const Auth = {
+  current: null,
+  listeners: new Set(),
+  init() {
+    ensureFirebase();
+    const auth = firebase.auth();
+    // Set current from cached user immediately (may be null)
+    if (auth.currentUser) this.current = { uid: auth.currentUser.uid, email: auth.currentUser.email };
+    auth.onAuthStateChanged((user) => {
+      this.current = user ? { uid: user.uid, email: user.email } : null;
+      // inform listeners
+      for (const fn of this.listeners) { try { fn(this.current); } catch {} }
+      // UI + data refresh hooks (functions defined later in file)
+      try { updateAccountUI(); } catch {}
+      try { reloadUserData(); } catch {}
+      try { Store.onAuthChanged(user); } catch {}
+    });
+  },
+  onChange(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); },
+  userKey() { return this.current?.uid || 'guest'; },
+  async register(email, password) {
+    ensureFirebase();
+    const { user } = await firebase.auth().createUserWithEmailAndPassword(String(email).trim(), password);
+    this.current = user ? { uid: user.uid, email: user.email } : null;
+  },
+  async login(email, password) {
+    ensureFirebase();
+    const { user } = await firebase.auth().signInWithEmailAndPassword(String(email).trim(), password);
+    this.current = user ? { uid: user.uid, email: user.email } : null;
+  },
+  async logout() { ensureFirebase(); await firebase.auth().signOut(); this.current = null; }
+};
+
+// Projects store: Firestore when logged-in; localStorage for guest
 const Store = {
   keyBase: 'puzzele.projects.v1',
   selBase: 'puzzele.selectedId',
+  cache: [],
+  unsub: null,
   key() { return `${this.keyBase}:${Auth.userKey()}`; },
   selKey() { return `${this.selBase}:${Auth.userKey()}`; },
-  load() {
+  _keyForUserKey(userKey) { return `${this.keyBase}:${userKey}`; },
+  _selKeyForUserKey(userKey) { return `${this.selBase}:${userKey}`; },
+  _loadLocal() {
     try {
       const raw = localStorage.getItem(this.key());
       const arr = raw ? JSON.parse(raw) : [];
@@ -66,20 +70,168 @@ const Store = {
       return [];
     }
   },
-  save(projects) {
-    // strip large transient fields before persisting
+  _saveLocal(projects) {
+    // Keep local cache small: strip large transient fields
     const slim = projects.map(p => {
-      const { image, _imageUrl, ...rest } = p || {};
+      const { image, _imageUrl, imageDataUrl, ...rest } = p || {};
       return rest;
     });
     localStorage.setItem(this.key(), JSON.stringify(slim));
   },
-  selectedId() {
-    return localStorage.getItem(this.selKey());
+  _toRemoteDoc(p) {
+    // Firestore 不支持数组中的元素仍为数组（nested arrays），
+    // 将 2D 边数组序列化为字符串字段。
+    const { image, _imageUrl, imageDataUrl, hEdges, vEdges, ...rest } = p || {};
+    return {
+      ...rest,
+      hEdgesS: hEdges ? JSON.stringify(hEdges) : null,
+      vEdgesS: vEdges ? JSON.stringify(vEdges) : null,
+      // Save compressed base64 data URL for cross-device sync
+      imageDataUrl: imageDataUrl || null
+    };
   },
-  setSelectedId(id) {
-    if (id == null) localStorage.removeItem(this.selKey());
-    else localStorage.setItem(this.selKey(), String(id));
+  _fromRemoteDoc(id, data) {
+    const obj = { id, ...(data || {}) };
+    try { if (typeof obj.hEdgesS === 'string') obj.hEdges = JSON.parse(obj.hEdgesS); } catch {}
+    try { if (typeof obj.vEdgesS === 'string') obj.vEdges = JSON.parse(obj.vEdgesS); } catch {}
+    delete obj.hEdgesS; delete obj.vEdgesS;
+    return obj;
+  },
+  load() { return this.cache.length ? [...this.cache] : this._loadLocal(); },
+  async save(projects) {
+    const user = firebase.auth().currentUser;
+    if (!user) { this._saveLocal(projects); return; }
+    // upsert all docs in a batch
+    const db = firebase.firestore();
+    const batch = db.batch();
+    const col = db.collection('users').doc(user.uid).collection('projects');
+    for (const p of projects) {
+      const ref = col.doc(String(p.id));
+      batch.set(ref, this._toRemoteDoc(p), { merge: true });
+    }
+    await batch.commit();
+    // keep an offline shadow copy keyed by uid for fast reload
+    this._saveLocal(projects);
+  },
+  async deleteProject(id) {
+    const user = firebase.auth().currentUser;
+    if (!user) return; // local deletion already handled by caller
+    const db = firebase.firestore();
+    await db.collection('users').doc(user.uid).collection('projects').doc(String(id)).delete().catch(()=>{});
+  },
+  selectedId() { return localStorage.getItem(this.selKey()); },
+  setSelectedId(id) { if (id == null) localStorage.removeItem(this.selKey()); else localStorage.setItem(this.selKey(), String(id)); },
+  onAuthChanged(user) {
+    // stop previous listener
+    if (this.unsub) { try { this.unsub(); } catch {} this.unsub = null; }
+    if (!user) {
+      // fallback to local cache for guest
+      this.cache = this._loadLocal();
+      return;
+    }
+    // Optimistic: show offline cache for this uid immediately
+    try {
+      this.cache = this._loadLocal();
+      projects = this.load();
+      selectedId = this.selectedId();
+      selected = projects.find(p => p.id === selectedId) || null;
+      updateSidebar();
+      updateToolbar();
+      if (selected) {
+        if (selected.imageDataUrl) {
+          (async () => {
+            selected._imageUrl = selected.imageDataUrl;
+            try { const meta = await probeImage(selected.imageDataUrl); selected.imageAspect = meta.aspect; } catch {}
+            els.puzzle.setProject(selected);
+          })();
+        } else if (selected.imageRef) {
+          loadProjectImage(selected, selected.id);
+        }
+      }
+    } catch {}
+    // Try migrating guest local projects to this user (fire-and-forget)
+    this.migrateGuestToUser(user).catch(err => console.warn('migrate guest -> user failed', err));
+    // realtime sync for this user's projects
+    const db = firebase.firestore();
+    const col = db.collection('users').doc(user.uid).collection('projects').orderBy('createdAt', 'asc');
+    this.unsub = col.onSnapshot((snap) => {
+      const serverArr = [];
+      snap.forEach(doc => {
+        const data = doc.data() || {};
+        serverArr.push(this._fromRemoteDoc(doc.id, data));
+      });
+      let arr = serverArr;
+      try {
+        const offline = this._loadLocal();
+        if ((serverArr.length === 0) && offline.length) arr = offline;
+      } catch {}
+      this.cache = arr;
+      // update offline cache as well
+      try { this._saveLocal(arr); } catch {}
+      try {
+        // update global state if available
+        projects = this.load();
+        selectedId = this.selectedId();
+        selected = projects.find(p => p.id === selectedId) || null;
+        updateSidebar();
+        updateToolbar();
+        if (selected) {
+          if (selected.imageDataUrl) {
+            (async () => {
+              selected._imageUrl = selected.imageDataUrl;
+              try { const meta = await probeImage(selected.imageDataUrl); selected.imageAspect = meta.aspect; } catch {}
+              els.puzzle.setProject(selected);
+            })();
+          } else if (selected.imageRef) {
+            loadProjectImage(selected, selected.id);
+          }
+        }
+      } catch {}
+    }, (err) => console.error('Firestore sync error', err));
+  },
+  async migrateGuestToUser(user) {
+    if (!user) return;
+    // read guest data and legacy email-key data (pre-Firebase local auth)
+    const guestKey = this._keyForUserKey('guest');
+    const guestSelKey = this._selKeyForUserKey('guest');
+    const emailKeyStr = (user.email || '').trim().toLowerCase();
+    const legacyKey = emailKeyStr ? this._keyForUserKey(emailKeyStr) : null;
+    const legacySelKey = emailKeyStr ? this._selKeyForUserKey(emailKeyStr) : null;
+
+    const collected = [];
+    for (const k of [guestKey, legacyKey].filter(Boolean)) {
+      try {
+        const raw = localStorage.getItem(k);
+        const arr = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(arr)) collected.push(...arr);
+      } catch {}
+    }
+    if (!collected.length) return;
+    // de-duplicate by id
+    const map = new Map();
+    for (const p of collected) {
+      if (!p || !p.id) continue;
+      const prev = map.get(p.id);
+      if (!prev || (p.createdAt||0) > (prev.createdAt||0)) map.set(p.id, p);
+    }
+    const projectsToMigrate = Array.from(map.values());
+    if (!projectsToMigrate.length) return;
+    // write them to Firestore
+    const db = firebase.firestore();
+    const col = db.collection('users').doc(user.uid).collection('projects');
+    const batch = db.batch();
+    for (const p of projectsToMigrate) {
+      const id = String(p.id || uid());
+      const remote = this._toRemoteDoc({ ...p, id });
+      batch.set(col.doc(id), remote, { merge: true });
+    }
+    await batch.commit();
+    // migrate selectedId if user has none
+    const currentSel = localStorage.getItem(this.selKey());
+    if (!currentSel) {
+      const candidateSel = localStorage.getItem(guestSelKey) || (legacySelKey ? localStorage.getItem(legacySelKey) : null);
+      if (candidateSel) localStorage.setItem(this.selKey(), candidateSel);
+    }
   }
 };
 
@@ -403,6 +555,8 @@ async function reloadUserData() {
   selected = projects.find(p => p.id === selectedId) || null;
   updateSidebar();
   updateToolbar();
+  // Backfill base64 images for logged-in users in the background
+  try { ensureBase64ForExisting(); } catch {}
 }
 
 function updateSidebar() {
@@ -456,6 +610,7 @@ async function deleteProject(id) {
   const ok = confirm(`確定要刪除專案「${p.name}」嗎？此動作無法復原。`);
   if (!ok) return;
   try { if (p.imageRef) await ImageDB.del(p.imageRef); } catch {}
+  try { await Store.deleteProject(id); } catch (e) { console.warn('remote delete failed', e); }
   projects = projects.filter(x => x.id !== id);
   // Fix selection
   if (selected && selected.id === id) {
@@ -483,12 +638,30 @@ function selectProject(id) {
   updateSidebar();
   updateToolbar();
   // load image asynchronously if needed
-  if (selected && selected.imageRef) {
+  if (!selected) return;
+  if (selected.imageDataUrl) {
+    (async () => {
+      selected._imageUrl = selected.imageDataUrl;
+      try { const meta = await probeImage(selected.imageDataUrl); selected.imageAspect = meta.aspect; } catch {}
+      els.puzzle.setProject(selected);
+    })();
+  } else if (selected.imageRef) {
     loadProjectImage(selected, id);
   }
 }
 
 function loadProjectImage(p, expectedId) {
+  // Prefer remote base64 if present
+  if (p && p.imageDataUrl) {
+    (async () => {
+      if (!selected || selected.id !== expectedId) return;
+      p._imageUrl = p.imageDataUrl;
+      try { const meta = await probeImage(p.imageDataUrl); p.imageAspect = meta.aspect; } catch {}
+      els.puzzle.setProject(p);
+    })();
+    return;
+  }
+  // Fallback to local IndexedDB blob
   ImageDB.getUrl(p.imageRef).then(async url => {
     if (!selected || selected.id !== expectedId) return; // changed selection
     p._imageUrl = url || null;
@@ -499,6 +672,20 @@ function loadProjectImage(p, expectedId) {
       } catch {}
     }
     els.puzzle.setProject(p);
+    // If logged-in and we don't have base64 on the doc, backfill it now
+    try {
+      const user = firebase.auth().currentUser;
+      if (user && !p.imageDataUrl && p.imageRef) {
+        const blob = await ImageDB.get(p.imageRef);
+        if (blob) {
+          const { dataUrl, blob: outBlob } = await compressImageToDataURL(blob);
+          p.imageDataUrl = dataUrl;
+          // replace local cache with the compressed blob to save space
+          try { await ImageDB.put(p.imageRef, outBlob); } catch {}
+          saveProject(p);
+        }
+      }
+    } catch {}
   }).catch(() => {});
 }
 
@@ -509,6 +696,82 @@ function probeImage(url) {
     img.onerror = reject;
     img.src = url;
   });
+}
+
+// Image compression: downscale to fit within maxDim and encode to WebP/JPEG
+async function compressImageToDataURL(inputBlob, opts = {}) {
+  const maxDim = opts.maxDim || 1280; // max width/height
+  let quality = typeof opts.quality === 'number' ? opts.quality : 0.78;
+  const preferMime = opts.mime || 'image/webp';
+
+  const blobToImage = (blob) => new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = (e) => { URL.revokeObjectURL(url); reject(e); };
+    img.src = url;
+  });
+
+  const img = await blobToImage(inputBlob);
+  const iw = img.naturalWidth || img.width;
+  const ih = img.naturalHeight || img.height;
+  const scale = Math.min(1, maxDim / Math.max(iw, ih));
+  const ow = Math.max(1, Math.round(iw * scale));
+  const oh = Math.max(1, Math.round(ih * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = ow; canvas.height = oh;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0, ow, oh);
+
+  // helper to export and measure size
+  const exportOnce = (mime, q) => {
+    const url = canvas.toDataURL(mime, q);
+    // approximate bytes: base64 length * 3/4
+    const approxBytes = Math.floor((url.length - (url.indexOf(',') + 1)) * 0.75);
+    return { url, approxBytes, mime };
+  };
+
+  // Try WebP first, fallback to JPEG
+  let out = exportOnce(preferMime, quality);
+  if (!/^data:image\/webp;/.test(out.url)) {
+    out = exportOnce('image/jpeg', quality);
+  }
+
+  // Keep within Firestore 1MB doc limit; target ~900KB max
+  const MAX_BYTES = 900 * 1024;
+  let tries = 0;
+  while (out.approxBytes > MAX_BYTES && tries < 5) {
+    quality = Math.max(0.5, quality - 0.1);
+    // If quality already low, also scale down
+    if (quality <= 0.55 && tries >= 2) {
+      const nx = Math.round(canvas.width * 0.85);
+      const ny = Math.round(canvas.height * 0.85);
+      const tmp = document.createElement('canvas');
+      tmp.width = nx; tmp.height = ny;
+      const tctx = tmp.getContext('2d');
+      tctx.drawImage(canvas, 0, 0, nx, ny);
+      canvas.width = nx; canvas.height = ny;
+      ctx.drawImage(tmp, 0, 0);
+    }
+    out = exportOnce(out.mime, quality);
+    tries++;
+  }
+
+  // Convert to Blob for local caching
+  const dataURLtoBlobLocal = (dataUrl) => {
+    const [meta, b64] = dataUrl.split(',');
+    const match = /data:(.*?);base64/.exec(meta || '') || [];
+    const mime = match[1] || 'image/jpeg';
+    const bin = atob(b64 || '');
+    const len = bin.length;
+    const arr = new Uint8Array(len);
+    for (let i = 0; i < len; i++) arr[i] = bin.charCodeAt(i);
+    return new Blob([arr], { type: mime });
+  };
+
+  const outBlob = dataURLtoBlobLocal(out.url);
+  return { dataUrl: out.url, blob: outBlob, width: canvas.width, height: canvas.height };
 }
 
 // New project modal
@@ -564,14 +827,18 @@ els.form.addEventListener('submit', async (e) => {
     hEdges: edges.h,
     vEdges: edges.v
   };
-  // store image blob in IndexedDB if provided
+  // Compress and store image: put compressed blob in IndexedDB; base64 in Firestore doc
   if (tempImageFile) {
     const imgId = `img_${id}`;
-    try { await ImageDB.put(imgId, tempImageFile); proj.imageRef = imgId; }
-    catch (err) { console.warn('save image failed', err); }
+    try {
+      const { dataUrl, blob } = await compressImageToDataURL(tempImageFile);
+      await ImageDB.put(imgId, blob);
+      proj.imageRef = imgId;
+      proj.imageDataUrl = dataUrl;
+    } catch (err) { console.warn('save image failed', err); }
   }
   projects.push(proj);
-  saveAll();
+  try { await Store.save(projects); } catch (err) { console.warn('save projects failed', err); }
   selectProject(id);
   els.dlg.close();
 });
@@ -658,8 +925,8 @@ els.completeBtn.addEventListener('click', () => { Timer.stop(); onTimerComplete(
 // Account / Auth wiring
 updateAccountUI();
 els.loginBtn.addEventListener('click', () => { setAuthMode('login'); els.authDialog.showModal(); });
-els.logoutBtn.addEventListener('click', () => {
-  Auth.logout();
+els.logoutBtn.addEventListener('click', async () => {
+  try { await Auth.logout(); } catch {}
   updateAccountUI();
   reloadUserData();
   flashToast('已登出');
@@ -869,3 +1136,22 @@ function dataURLtoBlob(dataUrl) {
   }
   if (changed) saveAll();
 })();
+
+// Ensure base64 exists in remote for any project that only has local blob
+async function ensureBase64ForExisting() {
+  const user = firebase.auth().currentUser;
+  if (!user) return;
+  let changed = false;
+  for (const p of projects) {
+    if (!p || p.imageDataUrl || !p.imageRef) continue;
+    try {
+      const blob = await ImageDB.get(p.imageRef);
+      if (!blob) continue;
+      const { dataUrl, blob: outBlob } = await compressImageToDataURL(blob);
+      p.imageDataUrl = dataUrl;
+      try { await ImageDB.put(p.imageRef, outBlob); } catch {}
+      changed = true;
+    } catch (e) { /* ignore */ }
+  }
+  if (changed) saveAll();
+}
